@@ -1,0 +1,15 @@
+# ⚠️ 허용목록 방식: 아래 명시한 파일만 커밋됨 (hwp/hwpx·log 등 개인정보 원천 차단)
+*
+!.gitignore
+!README.md
+!redact_auto.py
+!redact_hwpx.py
+!watch_redact.py
+!hwp_convert.py
+!hwp_to_hwpx.py
+!config.example.yaml
+!시작_폴더감시.bat
+!build_exe.bat
+!배포판/
+!배포판/HWPX_Redactor/
+!배포판/HWPX_Redactor/사용법.txt
