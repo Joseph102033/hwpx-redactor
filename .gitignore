@@ -1,0 +1,17 @@
+# 허용목록 방식: 아래 명시한 파일만 커밋됨 (hwp/hwpx·log·빌드결과물 등 개인정보/바이너리 원천 차단)
+*
+!.gitignore
+!LITE_README.md
+!먼저읽어주세요.txt
+!requirements-lite-build.txt
+!frontmatter.py
+!hwp_convert.py
+!lite_app.py
+!redact_hwpx.py
+!redact_lite.py
+!watch_lite.py
+!test_frontmatter.py
+!test_lite.py
+!build_lite.bat
+!build_watch_lite.bat
+!시작_폴더감시.bat
