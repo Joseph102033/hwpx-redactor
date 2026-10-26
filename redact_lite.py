@@ -285,7 +285,10 @@ def process(src, companies=None, output=None):
     for name in sections:
         root = parse(data[name])
         for paragraph in root.iter(H + 'p'):
-            value = ''.join(joined(run) for run in paragraph.findall(H + 'run'))
+            # joined(run)은 run 안에 중첩된 하위 표까지 재귀로 긁어와 경계 없이 이어붙이므로
+            # 서로 다른 셀 텍스트가 붙어 가짜로 매치될 수 있다. 처리 루프와 같은 방식(직계 자식만)으로 검사.
+            nodes = [t for run in paragraph.findall(H + 'run') for t in run.findall(H + 't') if not list(t)]
+            value = ''.join(t.text or '' for t in nodes)
             if JUMIN.search(value) or PHONE.search(value) or (pattern is not None and pattern.search(value)):
                 raise ValueError('처리 대상 텍스트가 남아 있어 저장을 중단했습니다.')
     # 같은 디렉터리의 임시 파일에서 완성한 후, 기존 파일을 덮어쓰지 않고 생성.
