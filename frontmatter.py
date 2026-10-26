@@ -17,6 +17,9 @@ def compact(node):
     return re.sub(r'\s+', '', text(node))
 
 
+OVERVIEW_ID_LABELS = ('사업장명', '회사명', '업체명', '사업체명', '현장명', '대표자')
+
+
 def find_body(sections):
     candidates = []
     for name, root in sections.items():
@@ -25,7 +28,13 @@ def find_body(sections):
             if not re.fullmatch(r'(?:1[.．)]?|Ⅰ[.．]?)?재해발생사업장개요', compact(paragraph)):
                 continue
             nearby = paragraphs[i + 1:i + 5]
-            if not any('사업장명' in compact(p) and ('소재지' in compact(p) or '주소' in compact(p)) and p.find('.//' + HP + 'tbl') is not None for p in nearby):
+            # 원청/하청/재하도급은 '회사명'으로, 개인사업주는 회사명 없이 '현장명/대표자'로만 적힘.
+            def is_overview_table(p):
+                c = compact(p)
+                return (p.find('.//' + HP + 'tbl') is not None
+                        and ('소재지' in c or '주소' in c)
+                        and any(label in c for label in OVERVIEW_ID_LABELS))
+            if not any(is_overview_table(p) for p in nearby):
                 continue
             start = i
             for j in range(i - 1, max(-1, i - 5), -1):

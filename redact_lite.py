@@ -18,6 +18,9 @@ JUMIN = re.compile(
 PHONE = re.compile(r'(?<!\d)(?:\+82[ .-]?(?:10|2|[3-6][1-5]|70)|0(?:10|11|16|17|18|19|2|[3-6][1-5]|70|80|50[2-8]))[ .()-]*\d{3,4}[ .-]*\d{4}(?!\d)')
 CORP = re.compile(r'\(주\)|㈜|주식회사|\(유\)|유한회사|유한책임회사')
 LABELS = {'사업장명', '회사명', '업체명', '사업체명', '원청', '하청', '원도급', '하도급'}
+# 원청/하청/원도급/하도급은 재해자 표의 '소속' 값으로도 그대로 쓰이므로, 주소 칸이 있는
+# 표(=사업장 개요표) 안에서만 라벨로 인정한다. 그 외엔 값으로 취급해 오탐지를 막는다.
+AMBIGUOUS_LABELS = {'원청', '하청', '원도급', '하도급'}
 
 
 def birthyear(value):
@@ -25,7 +28,9 @@ def birthyear(value):
     gender = digits[6]
     if gender == '*':
         return ''  # 세기를 판단할 수 없으면 추측하지 않음.
-    century = 1800 if gender in '09' else 1900 if gender in '1256' else 2000
+    # 1,2: 내국인 1900년대 / 3,4: 내국인 2000년대 / 5,6: 외국인 1900년대 / 7,8: 외국인 2000년대
+    # 9,0: 2020년 외국인등록번호 뒷자리(5~8) 소진에 따른 연장번호(각각 1900년대/2000년대).
+    century = 1900 if gender in '125679' else 2000
     return f'{century + int(digits[:2])}년'
 
 
@@ -54,8 +59,12 @@ def detect_companies(roots):
                     addr = cell.find(H + 'cellAddr')
                     if addr is not None:
                         cells[int(addr.get('colAddr')), int(addr.get('rowAddr'))] = joined(cell).strip()
+            has_addr = any('주소' in v or '소재지' in v for v in cells.values())
             for (col, row), value in cells.items():
-                if re.sub(r'\s', '', value) not in LABELS:
+                norm = re.sub(r'\s', '', value)
+                if norm not in LABELS:
+                    continue
+                if norm in AMBIGUOUS_LABELS and not has_addr:
                     continue
                 # 바로 오른쪽 또는 바로 아래 값만 후보로 사용. 멀리 있는 임의 셀 추측 금지.
                 for key in ((col + 1, row), (col, row + 1)):
