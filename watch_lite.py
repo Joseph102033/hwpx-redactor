@@ -144,9 +144,10 @@ def handle(src):
             raise last
         final = safe_move(result["output"], OUT)
         safe_move(src, DONE)
+        note = '' if result['pictures'] else ' (사업장명 미발견 — 수동 확인 필요)'
         log(f"완료 -> output/{os.path.basename(final)} | "
             f"회사명이미지{result['pictures']}곳·전화{result['phone']}·주민번호{result['jumin']}·"
-            f"주소{result['address']}")
+            f"주소{result['address']}·관리번호{result['bizno']}{note}")
     except Exception as e:
         log(f"오류 -> review/ : {fn} | {e}")
         log(traceback.format_exc())

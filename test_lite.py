@@ -59,15 +59,22 @@ class LiteTests(unittest.TestCase):
                 process(src)
             self.assertEqual(Path(result['output']).read_bytes(), output_before)
 
-    def test_no_company_no_output(self):
+    def test_no_company_still_finishes_other_redactions(self):
+        # 사업장명을 못 찾거나 일치하는 게 없어도, 전화/주민번호/주소 처리는 끝까지 마치고 저장한다.
         with tempfile.TemporaryDirectory() as folder:
             src = Path(folder) / 'input.hwpx'
             fixture(src)
-            with self.assertRaises(ValueError):
-                process(src, [])
-            with self.assertRaises(ValueError):
-                process(src, ['없는회사'])
-            self.assertFalse(src.with_name('input_경량본.hwpx').exists())
+            result = process(src, [], output=Path(folder) / 'out1.hwpx')
+            self.assertEqual(result['pictures'], 0)
+            self.assertEqual(result['phone'], 2)
+            self.assertEqual(result['jumin'], 2)
+            with zipfile.ZipFile(result['output']) as archive:
+                text = joined(parse(archive.read('Contents/section0.xml')))
+                self.assertIn('가나산업', text)  # 못 찾았으니 이미지화되지 않고 그대로 남음
+
+            result2 = process(src, ['없는회사'], output=Path(folder) / 'out2.hwpx')
+            self.assertEqual(result2['pictures'], 0)
+            self.assertEqual(result2['phone'], 2)
 
     def test_inline_controls(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -134,6 +141,29 @@ class LiteTests(unittest.TestCase):
             self.assertEqual(JUMIN.sub('', value), '')
         for value in ('900101', '2023-01-05', '123-45-67890', '90010112345678'):
             self.assertEqual(JUMIN.sub('', value), value)
+
+    def test_bizno_table_values_removed(self):
+        # 사업장관리번호 · 산재관리번호(사업개시번호)는 표 안의 값이면 라벨은 남기고 값만 삭제한다.
+        with tempfile.TemporaryDirectory() as folder:
+            src = Path(folder) / 'input.hwpx'
+            fixture(src)
+            with zipfile.ZipFile(src) as archive:
+                entries = {n: archive.read(n) for n in archive.namelist()}
+            bizno_table = ('<hp:tbl><hp:tr>' + cell(0, 0, '사업장관리번호') + cell(1, 0, '미성립') + '</hp:tr>'
+                            '<hp:tr>' + cell(0, 1, '산재관리번호(사업개시번호)') + cell(1, 1, '40881748690(00000000000)') + '</hp:tr></hp:tbl>')
+            section = entries['Contents/section0.xml'].decode().replace('</hs:sec>', bizno_table + '</hs:sec>')
+            entries['Contents/section0.xml'] = section.encode()
+            with zipfile.ZipFile(src, 'w') as archive:
+                for name, value in entries.items():
+                    archive.writestr(name, value)
+            result = process(src)
+            self.assertEqual(result['bizno'], 2)
+            with zipfile.ZipFile(result['output']) as archive:
+                text = joined(parse(archive.read('Contents/section0.xml')))
+                self.assertIn('사업장관리번호', text)
+                self.assertIn('산재관리번호(사업개시번호)', text)
+                self.assertNotIn('미성립', text)
+                self.assertNotIn('40881748690', text)
 
     def test_original_as_output_rejected(self):
         with tempfile.TemporaryDirectory() as folder:

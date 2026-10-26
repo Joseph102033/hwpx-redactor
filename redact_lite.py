@@ -21,6 +21,8 @@ LABELS = {'사업장명', '회사명', '업체명', '사업체명', '원청', '�
 # 원청/하청/원도급/하도급은 재해자 표의 '소속' 값으로도 그대로 쓰이므로, 주소 칸이 있는
 # 표(=사업장 개요표) 안에서만 라벨로 인정한다. 그 외엔 값으로 취급해 오탐지를 막는다.
 AMBIGUOUS_LABELS = {'원청', '하청', '원도급', '하도급'}
+# 사업자등록번호는 유지하되(LITE_README 정책), 사업장관리번호·산재관리번호(사업개시번호)는 삭제한다.
+BIZNO_LABEL = re.compile(r'관리번호|개시번호')
 
 
 def birthyear(value):
@@ -165,17 +167,18 @@ def process(src, companies=None, output=None):
     # 변경이력은 원본 보존 요구와 충돌할 수 있으므로 자동 수락/삭제하지 않음.
     if any(re.search(rb'<\w+:(?:insertBegin|deleteBegin)\b', data[n]) for n in sections):
         raise ValueError('변경 이력이 있습니다. 한글에서 변경 이력을 검토·정리한 후 다시 처리해 주세요.')
+    # 사업장명을 못 찾거나 이미지화를 못 해도, 전화/주민번호/주소 처리는 끝까지 진행한다.
     companies = detect_companies(sections.values()) if companies is None else companies
     pattern = company_pattern(companies)
-    if pattern is None:
-        raise ValueError('사업장명을 찾지 못했습니다. 사업장명을 직접 입력해 주세요.')
-    import os
-    candidates = [str(Path(os.environ.get('WINDIR', r'C:\Windows')) / 'Fonts' / 'malgun.ttf'),
-                  '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',
-                  '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc']
-    font = next((p for p in candidates if Path(p).exists()), None)
-    if not font:
-        raise ValueError('사업장명 이미지 생성에 필요한 한글 폰트(맑은 고딕)가 없습니다.')
+    font = None
+    if pattern is not None:
+        import os
+        candidates = [str(Path(os.environ.get('WINDIR', r'C:\Windows')) / 'Fonts' / 'malgun.ttf'),
+                      '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',
+                      '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc']
+        font = next((p for p in candidates if Path(p).exists()), None)
+        if not font:
+            pattern = None  # 폰트가 없으면 사업장명 이미지화만 건너뛴다.
     header = parse(data['Contents/header.xml'])
     heights = {e.get('id'): int(e.get('height', '1000')) for e in header.iter() if e.tag.endswith('}charPr')}
     manifest_root = parse(data['Contents/content.hpf'])
@@ -189,7 +192,7 @@ def process(src, companies=None, output=None):
     numeric_ids = [int(i) for i in existing_ids if i and i.isdigit()]
     pf.id = max([pf.id] + numeric_ids)
     cache = {}
-    count = {'phone': 0, 'jumin': 0, 'address': 0, 'pictures': 0}
+    count = {'phone': 0, 'jumin': 0, 'address': 0, 'pictures': 0, 'bizno': 0}
     with tempfile.TemporaryDirectory(prefix='hwpx_lite_') as folder:
         for name, root in sections.items():
             normalize_inline(root)
@@ -202,6 +205,27 @@ def process(src, companies=None, output=None):
                 if short != value:
                     replace_span(nodes, 0, len(value), short)
                     count['address'] += 1
+            # 사업장관리번호 · 산재관리번호(사업개시번호) 값은 라벨을 남기고 값만 완전히 삭제.
+            for table in root.iter(H + 'tbl'):
+                cell_els = {}
+                for trow in table.findall(H + 'tr'):
+                    for cell in trow.findall(H + 'tc'):
+                        addr = cell.find(H + 'cellAddr')
+                        if addr is not None:
+                            cell_els[int(addr.get('colAddr')), int(addr.get('rowAddr'))] = cell
+                for (col, row), cell in cell_els.items():
+                    if not BIZNO_LABEL.search(re.sub(r'\s', '', joined(cell))):
+                        continue
+                    for key in ((col + 1, row), (col, row + 1)):
+                        target = cell_els.get(key)
+                        if target is None:
+                            continue
+                        nodes = [t for t in texts(target) if not list(t)]
+                        value = ''.join(t.text or '' for t in nodes)
+                        if value and not BIZNO_LABEL.search(re.sub(r'\s', '', value)):
+                            replace_span(nodes, 0, len(value), '')
+                            count['bizno'] += 1
+                            break
             for paragraph in root.iter(H + 'p'):
                 # 중첩 표의 문단은 해당 문단 처리 때만 포함.
                 nodes = [t for run in paragraph.findall(H + 'run') for t in run.findall(H + 't') if not list(t)]
@@ -221,6 +245,8 @@ def process(src, companies=None, output=None):
                 for match in reversed(list(NARROW_ADDR.finditer(value))):
                     replace_span(nodes, *match.span(), match.group(1))
                     count['address'] += 1
+                if pattern is None:
+                    continue
                 value = ''.join(t.text or '' for t in nodes)
                 for match in reversed(list(pattern.finditer(value))):
                     label = match.group()
@@ -247,8 +273,7 @@ def process(src, companies=None, output=None):
                     replace_span(nodes, *match.span(), picture=picture, parents=parents)
                     count['pictures'] += 1
             data[name] = ET.tostring(root, encoding='utf-8', xml_declaration=True)
-    if not count['pictures']:
-        raise ValueError('입력한 사업장명과 일치하는 텍스트가 없습니다.')
+    # 사업장명을 못 찾아도(그림 0곳) 중단하지 않는다 — 전화/주민번호/주소는 이미 처리됐다.
     data['Contents/content.hpf'] = ET.tostring(manifest_root, encoding='utf-8', xml_declaration=True)
     # 원문이 포함된 미리보기 캐시를 비움.
     if 'Preview/PrvText.txt' in data:
@@ -261,7 +286,7 @@ def process(src, companies=None, output=None):
         root = parse(data[name])
         for paragraph in root.iter(H + 'p'):
             value = ''.join(joined(run) for run in paragraph.findall(H + 'run'))
-            if JUMIN.search(value) or PHONE.search(value) or pattern.search(value):
+            if JUMIN.search(value) or PHONE.search(value) or (pattern is not None and pattern.search(value)):
                 raise ValueError('처리 대상 텍스트가 남아 있어 저장을 중단했습니다.')
     # 같은 디렉터리의 임시 파일에서 완성한 후, 기존 파일을 덮어쓰지 않고 생성.
     with tempfile.TemporaryFile() as tmp:
