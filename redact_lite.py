@@ -148,7 +148,7 @@ def normalize_inline(root):
                 run.insert(position + index, piece)
 
 
-def process(src, companies=None, output=None, front_template=None):
+def process(src, companies=None, output=None):
     src = Path(src)
     if src.suffix.lower() != '.hwpx':
         raise ValueError('HWPX 파일을 선택해 주세요.')
@@ -158,12 +158,6 @@ def process(src, companies=None, output=None, front_template=None):
     with zipfile.ZipFile(src) as archive:
         infos = archive.infolist()
         data = {info.filename: archive.read(info) for info in infos}
-    front_result = None
-    if front_template is not None:
-        if any(re.search(rb'<\w+:(?:insertBegin|deleteBegin)\b', value) for name, value in data.items() if name.endswith('.xml')):
-            raise ValueError('변경 이력을 정리한 후 표지를 교체해 주세요.')
-        from frontmatter import replace_frontmatter
-        front_result = replace_frontmatter(data, front_template)
     sections = {name: parse(value) for name, value in data.items()
                 if re.fullmatch(r'Contents/section\d+\.xml', name)}
     if not sections:
@@ -281,4 +275,4 @@ def process(src, companies=None, output=None, front_template=None):
         import shutil
         with output.open('xb') as target:
             shutil.copyfileobj(tmp, target)
-    return {'output': str(output), 'companies': companies, 'frontmatter': front_result, **count}
+    return {'output': str(output), 'companies': companies, **count}

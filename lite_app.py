@@ -1,7 +1,6 @@
 """Windows 경량판 UI. 문서는 로컬 임시 폴더에서 처리합니다."""
 from pathlib import Path
 import queue
-import sys
 import tempfile
 import threading
 import tkinter as tk
@@ -46,11 +45,6 @@ def main():
     names = tk.Text(frame, height=6, font=('맑은 고딕', 10))
     names.pack(fill='x', pady=5)
     ttk.Label(frame, text='주민번호는 출생연도만 남기고, 제목행도 출생연도로 변경합니다.').pack(anchor='w', pady=4)
-    replace_cover = tk.BooleanVar(value=True)
-    ttk.Checkbutton(frame, text='기존 표지·목차 삭제 후 표준 표지·Disclaimer 삽입',
-                    variable=replace_cover).pack(anchor='w', pady=4)
-    ttk.Label(frame, text='새 목차는 넣지 않습니다. 본문 경계를 찾지 못하면 중단합니다.').pack(anchor='w')
-    ttk.Label(frame, text='서식 교체는 검토용입니다. 저장 후 한글에서 페이지 배치를 확인하세요.').pack(anchor='w')
     def start():
         src = Path(source.get())
         companies = [s.strip() for s in names.get('1.0', 'end').splitlines() if s.strip()]
@@ -62,11 +56,6 @@ def main():
             return
         if Path(dst).exists():
             messagebox.showerror('저장 위치 확인', '기존 파일은 덮어쓰지 않습니다. 새 이름을 지정해 주세요.')
-            return
-        base = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
-        template = base / 'templates' / 'frontmatter.hwpx' if replace_cover.get() else None
-        if template is not None and not template.is_file():
-            messagebox.showerror('서식 없음', 'templates/frontmatter.hwpx 파일이 필요합니다.')
             return
         run_button.config(state='disabled')
         choose_button.config(state='disabled')
@@ -80,12 +69,12 @@ def main():
                         pythoncom.CoInitialize()
                         try:
                             converted = hwp_convert.convert(str(src), str(Path(folder) / 'input.hwpx'))
-                            result = process(converted, companies, dst, front_template=template)
+                            result = process(converted, companies, dst)
                         finally:
                             hwp_convert.quit_hwp()
                             pythoncom.CoUninitialize()
                     else:
-                        result = process(src, companies, dst, front_template=template)
+                        result = process(src, companies, dst)
                 events.put((True, result))
             except Exception as exc:
                 events.put((False, str(exc)))

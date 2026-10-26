@@ -5,7 +5,7 @@ py -3 -m venv .venv-lite
 if errorlevel 1 goto fail
 .venv-lite\Scripts\python -m pip install -r requirements-lite-build.txt
 if errorlevel 1 goto fail
-.venv-lite\Scripts\python -m PyInstaller --noconfirm --clean --onefile --windowed --name HWPX_Lite --distpath dist-lite --workpath build-lite --specpath build-lite --add-data "%~dp0templates\frontmatter.hwpx;templates" --hidden-import win32com.client --hidden-import pythoncom --exclude-module numpy --exclude-module matplotlib --exclude-module yaml "%~dp0lite_app.py"
+.venv-lite\Scripts\python -m PyInstaller --noconfirm --clean --onefile --windowed --name HWPX_Lite --distpath dist-lite --workpath build-lite --specpath build-lite --hidden-import win32com.client --hidden-import pythoncom --exclude-module numpy --exclude-module matplotlib --exclude-module yaml "%~dp0lite_app.py"
 if errorlevel 1 goto fail
 echo 완료: dist-lite\HWPX_Lite.exe
 pause

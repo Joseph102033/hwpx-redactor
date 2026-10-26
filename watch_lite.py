@@ -4,9 +4,9 @@
 HWPX_Lite 폴더 감시 자동변환기 (무인 운영용)
 ===============================================
 input 폴더에 한글(.hwpx 또는 .hwp)을 넣는 순간 자동으로:
-  사업장명 이미지화 / 전화번호 삭제 / 주민번호 -> 출생연도 / 주소 간소화 /
-  표준 표지·Disclaimer 교체(기존 표지·목차 삭제)
+  사업장명 이미지화 / 전화번호 삭제 / 주민번호 -> 출생연도 / 주소를 시·군·구까지 간소화
 까지 처리해 output 폴더에 공개본을 만듭니다. 사람 이름은 치환하지 않고 그대로 둡니다.
+표지·Disclaimer 교체는 하지 않습니다.
 (.hwp 는 PC에 설치된 한글로 먼저 .hwpx 변환 후 처리)
 
 폴더 구조 (스크립트/exe 와 같은 위치에 자동 생성):
@@ -19,8 +19,7 @@ input 폴더에 한글(.hwpx 또는 .hwp)을 넣는 순간 자동으로:
 사용법:
     python watch_lite.py              폴더 감시 (Ctrl+C 로 종료)
     python watch_lite.py a.hwp b.hwpx 지정 파일만 즉시 처리 (exe 에 파일 끌어놓기와 동일)
-의존성:  pip install pillow pywin32 ; 같은 폴더에 redact_lite.py, redact_hwpx.py,
-         frontmatter.py, hwp_convert.py, templates/frontmatter.hwpx
+의존성:  pip install pillow pywin32 ; 같은 폴더에 redact_lite.py, redact_hwpx.py, hwp_convert.py
 """
 import os, sys, re, time, shutil, traceback, datetime
 
@@ -48,9 +47,6 @@ DONE = os.path.join(BASE, "done")
 REV  = os.path.join(BASE, "review")
 LOG  = os.path.join(BASE, "log.txt")
 POLL = 5  # 감시 주기(초)
-
-# PyInstaller 로 빌드하면 templates/frontmatter.hwpx 는 _MEIPASS 에 묻힙니다.
-TEMPLATE = os.path.join(getattr(sys, "_MEIPASS", BASE), "templates", "frontmatter.hwpx")
 
 for d in (IN, OUT, DONE, REV):
     os.makedirs(d, exist_ok=True)
@@ -133,16 +129,13 @@ def handle(src):
     fn = os.path.basename(src)
     log(f"처리 시작: {fn}")
     dst = re.sub(r'\.hwpx$', '_공개본.hwpx', src, flags=re.I)
-    template = TEMPLATE if os.path.isfile(TEMPLATE) else None
-    if template is None:
-        log(f"경고: 표준 표지 서식이 없어 표지 교체 없이 처리합니다 ({TEMPLATE})")
     try:
         result = None
         last = None
         # 백신 실시간 검사가 막 생성/저장된 파일을 잠깐 잠그는 경우가 있어 재시도.
         for attempt in range(5):
             try:
-                result = redact_lite.process(src, companies=None, output=dst, front_template=template)
+                result = redact_lite.process(src, companies=None, output=dst)
                 break
             except (PermissionError, FileNotFoundError) as e:
                 last = e
@@ -153,7 +146,7 @@ def handle(src):
         safe_move(src, DONE)
         log(f"완료 -> output/{os.path.basename(final)} | "
             f"회사명이미지{result['pictures']}곳·전화{result['phone']}·주민번호{result['jumin']}·"
-            f"주소{result['address']}·표지교체={'예' if result['frontmatter'] else '아니오'}")
+            f"주소{result['address']}")
     except Exception as e:
         log(f"오류 -> review/ : {fn} | {e}")
         log(traceback.format_exc())
