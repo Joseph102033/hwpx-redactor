@@ -90,8 +90,16 @@ def safe_move(src, dst_dir):
     if os.path.exists(dst):                      # 동일 이름 충돌 시 타임스탬프 부여
         stem, ext = os.path.splitext(os.path.basename(src))
         dst = os.path.join(dst_dir, f"{stem}_{datetime.datetime.now():%H%M%S}{ext}")
-    shutil.move(src, dst)
-    return dst
+    # 백신 실시간 검사가 방금 생성/저장된 파일을 잠깐 잠그는 경우가 있어 재시도.
+    last = None
+    for attempt in range(5):
+        try:
+            shutil.move(src, dst)
+            return dst
+        except (PermissionError, FileNotFoundError, OSError) as e:
+            last = e
+            time.sleep(1.0 * (attempt + 1))
+    raise last
 
 
 def is_hwpx(fn):
@@ -113,6 +121,7 @@ def handle_hwp(src):
         return out
     except Exception as e:
         log(f"오류 -> review/ : {fn} | {e}")
+        log(traceback.format_exc())
         try:
             safe_move(src, REV)
         except Exception:
@@ -128,7 +137,18 @@ def handle(src):
     if template is None:
         log(f"경고: 표준 표지 서식이 없어 표지 교체 없이 처리합니다 ({TEMPLATE})")
     try:
-        result = redact_lite.process(src, companies=None, output=dst, front_template=template)
+        result = None
+        last = None
+        # 백신 실시간 검사가 막 생성/저장된 파일을 잠깐 잠그는 경우가 있어 재시도.
+        for attempt in range(5):
+            try:
+                result = redact_lite.process(src, companies=None, output=dst, front_template=template)
+                break
+            except (PermissionError, FileNotFoundError) as e:
+                last = e
+                time.sleep(1.0 * (attempt + 1))
+        if result is None:
+            raise last
         final = safe_move(result["output"], OUT)
         safe_move(src, DONE)
         log(f"완료 -> output/{os.path.basename(final)} | "
