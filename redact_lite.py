@@ -25,6 +25,20 @@ AMBIGUOUS_LABELS = {'원청', '하청', '원도급', '하도급'}
 BIZNO_LABEL = re.compile(r'관리번호|개시번호')
 
 
+def accept_changes(data):
+    """한컴 '변경 내용 추적'을 전부 승인한 것처럼 정리한다: 삽입 마커만 제거(텍스트는 유지),
+    삭제 구간은 텍스트만 제거(구조 태그는 보존)하여 지금 화면에 보이는 상태 그대로 확정한다."""
+    data = re.sub(rb'<hp:insertBegin\b[^>]*/>|<hp:insertEnd\b[^>]*/>', b'', data)
+
+    def _del(m):
+        region = m.group(2)
+        return re.sub(rb'(^|>)[^<>]+(<|$)', lambda mm: mm.group(1) + mm.group(2), region)
+
+    data = re.sub(rb'<hp:deleteBegin\b[^>]*\bId="(\d+)"[^>]*/>(.*?)<hp:deleteEnd\b[^>]*\bId="\1"[^>]*/>',
+                   _del, data, flags=re.S)
+    return re.sub(rb'<hp:delete(?:Begin|End)\b[^>]*/>', b'', data)
+
+
 def birthyear(value):
     digits = re.sub(r'[ \t–-]', '', value)
     gender = digits[6]
@@ -160,13 +174,14 @@ def process(src, companies=None, output=None):
     with zipfile.ZipFile(src) as archive:
         infos = archive.infolist()
         data = {info.filename: archive.read(info) for info in infos}
-    sections = {name: parse(value) for name, value in data.items()
-                if re.fullmatch(r'Contents/section\d+\.xml', name)}
-    if not sections:
+    section_names = [name for name in data if re.fullmatch(r'Contents/section\d+\.xml', name)]
+    if not section_names:
         raise ValueError('HWPX 본문을 찾지 못했습니다.')
-    # 변경이력은 원본 보존 요구와 충돌할 수 있으므로 자동 수락/삭제하지 않음.
-    if any(re.search(rb'<\w+:(?:insertBegin|deleteBegin)\b', data[n]) for n in sections):
-        raise ValueError('변경 이력이 있습니다. 한글에서 변경 이력을 검토·정리한 후 다시 처리해 주세요.')
+    # 변경 내용 추적이 켜져 있으면 전부 승인한 것처럼 정리하고(지금 보이는 상태를 확정) 계속 진행한다.
+    for n in section_names:
+        if re.search(rb'<\w+:(?:insertBegin|deleteBegin)\b', data[n]):
+            data[n] = accept_changes(data[n])
+    sections = {name: parse(data[name]) for name in section_names}
     # 사업장명을 못 찾거나 이미지화를 못 해도, 전화/주민번호/주소 처리는 끝까지 진행한다.
     companies = detect_companies(sections.values()) if companies is None else companies
     pattern = company_pattern(companies)

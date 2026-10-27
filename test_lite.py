@@ -98,19 +98,32 @@ class LiteTests(unittest.TestCase):
                 self.assertEqual(len(list(root.iter(H + 'tab'))), 1)
                 self.assertNotIn('가나산업', joined(root))
 
-    def test_changed_document_stops_without_output(self):
+    def test_change_history_accepted_automatically(self):
+        # 변경 내용 추적이 켜진 문서도 중단하지 않고, 전부 승인한 것처럼(지금 화면에 보이는 대로) 정리해서 처리한다.
         with tempfile.TemporaryDirectory() as folder:
             src = Path(folder) / 'input.hwpx'
             fixture(src)
             with zipfile.ZipFile(src) as archive:
                 entries = {n: archive.read(n) for n in archive.namelist()}
-            entries['Contents/section0.xml'] = entries['Contents/section0.xml'].replace(b'<hp:p>', b'<hp:p><hp:insertBegin Id="1"/>', 1)
+            section = entries['Contents/section0.xml'].decode()
+            section = section.replace(
+                '가나산업과 가나',
+                '<hp:insertBegin Id="1"/>삽입된문구<hp:insertEnd Id="1"/>'
+                '<hp:deleteBegin Id="2"/>지워질문구<hp:deleteEnd Id="2"/>가나산업과 가나',
+                1)
+            entries['Contents/section0.xml'] = section.encode()
             with zipfile.ZipFile(src, 'w') as archive:
                 for name, value in entries.items():
                     archive.writestr(name, value)
-            with self.assertRaisesRegex(ValueError, '변경 이력'):
-                process(src)
-            self.assertFalse(src.with_name('input_경량본.hwpx').exists())
+            result = process(src)
+            self.assertEqual(result['pictures'], 4)
+            with zipfile.ZipFile(result['output']) as archive:
+                root = parse(archive.read('Contents/section0.xml'))
+                text = joined(root)
+                self.assertIn('삽입된문구', text)
+                self.assertNotIn('지워질문구', text)
+                self.assertNotIn('insertBegin', text)
+                self.assertNotIn('deleteBegin', text)
 
     def test_default_birthyear_and_correct_header(self):
         from redact_lite import birthyear
